@@ -23,6 +23,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <iostream>
 
 #include "arrow/util/logging.h"
 #include "parquet/exception.h"
@@ -847,6 +848,7 @@ void SchemaDescriptor::BuildTree(const NodePtr& node, int16_t max_def_level,
     node_to_leaf_index_[static_cast<const PrimitiveNode*>(node.get())] =
         static_cast<int>(leaves_.size());
 
+    std::cerr << "kuddai mark 0 " << max_def_level << " " << max_rep_level << std::endl;
     // Primitive node, append to leaves
     leaves_.push_back(ColumnDescriptor(node, max_def_level, max_rep_level, this));
     leaf_to_base_.emplace(static_cast<int>(leaves_.size()) - 1, base);

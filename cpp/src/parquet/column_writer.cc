@@ -24,6 +24,8 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <iostream>
+#include <type_traits>
 
 #include "arrow/array.h"
 #include "arrow/buffer_builder.h"
@@ -360,6 +362,12 @@ class SerializedPageWriter : public PageWriter {
     // underlying buffer only keeps growing. Resize to a smaller size does not reallocate.
     PARQUET_THROW_NOT_OK(dest_buffer->Resize(max_compressed_size, false));
 
+    std::cerr << "kuddai mark uncompressed size: " << src_buffer.size() << std::endl;
+    for (int64_t i = 0; i < src_buffer.size(); ++i) {
+      std::cerr << static_cast<int>(src_buffer.data()[i]) << std::endl;
+    }
+    std::cerr << "kuddai mark uncompressed size end" << std::endl;
+
     PARQUET_ASSIGN_OR_THROW(
         int64_t compressed_size,
         compressor_->Compress(src_buffer.size(), src_buffer.data(), max_compressed_size,
@@ -412,6 +420,13 @@ class SerializedPageWriter : public PageWriter {
     }
     const int64_t header_size =
         thrift_serializer_->Serialize(&page_header, sink_.get(), meta_encryptor_.get());
+    PARQUET_ASSIGN_OR_THROW(int64_t start_body, sink_->Tell());
+    std::cerr << "kuddai mark writing datapage " << start_body << " " << output_data_len << std::endl;
+    std::cerr << "kuddai mark byte content start" << std::endl;
+    for (int i = 0; i < output_data_len; i++) {
+      std::cerr << static_cast<int>(output_data_buffer[i]) << std::endl;
+    }
+    std::cerr << "kuddai mark byte content end" << std::endl;
     PARQUET_THROW_NOT_OK(sink_->Write(output_data_buffer, output_data_len));
 
     /// Collect page index
@@ -685,12 +700,14 @@ std::unique_ptr<PageWriter> PageWriter::Open(
     bool page_write_checksum_enabled, ColumnIndexBuilder* column_index_builder,
     OffsetIndexBuilder* offset_index_builder, const CodecOptions& codec_options) {
   if (buffered_row_group) {
+    std::cerr << "page writer is buffered" << std::endl;
     return std::unique_ptr<PageWriter>(new BufferedPageWriter(
         std::move(sink), codec, metadata, row_group_ordinal, column_chunk_ordinal,
         page_write_checksum_enabled, pool, std::move(meta_encryptor),
         std::move(data_encryptor), column_index_builder, offset_index_builder,
         codec_options));
   } else {
+    std::cerr << "page writer is serialized" << std::endl;
     return std::unique_ptr<PageWriter>(new SerializedPageWriter(
         std::move(sink), codec, metadata, row_group_ordinal, column_chunk_ordinal,
         page_write_checksum_enabled, pool, std::move(meta_encryptor),
@@ -750,11 +767,13 @@ class ColumnWriterImpl {
         std::static_pointer_cast<ResizableBuffer>(AllocateBuffer(allocator_, 0));
     uncompressed_data_ =
         std::static_pointer_cast<ResizableBuffer>(AllocateBuffer(allocator_, 0));
+    std::cerr << "column writer impl has_dictionary " << has_dictionary_ << std::endl;
 
     if (pager_->has_compressor()) {
       compressor_temp_buffer_ =
           std::static_pointer_cast<ResizableBuffer>(AllocateBuffer(allocator_, 0));
     }
+    // src/parquet/column_writer.cc
   }
 
   virtual ~ColumnWriterImpl() = default;
@@ -884,6 +903,7 @@ class ColumnWriterImpl {
   void ConcatenateBuffers(int64_t definition_levels_rle_size,
                           int64_t repetition_levels_rle_size,
                           const std::shared_ptr<Buffer>& values, uint8_t* combined) {
+    std::cerr << "ConcatenateBuffers " << definition_levels_rle_size << " " << repetition_levels_rle_size << std::endl;
     memcpy(combined, repetition_levels_rle_->data(),
            static_cast<size_t>(repetition_levels_rle_size));
     combined += repetition_levels_rle_size;
@@ -947,9 +967,11 @@ void ColumnWriterImpl::AddDataPage() {
       definition_levels_rle_size + repetition_levels_rle_size + values->size();
 
   if (is_v1_data_page) {
+    std::cerr << "kuddai mark 1 v1" << std::endl;
     BuildDataPageV1(definition_levels_rle_size, repetition_levels_rle_size,
                     uncompressed_size, values);
   } else {
+    std::cerr << "kuddai mark 1 v2" << std::endl;
     BuildDataPageV2(definition_levels_rle_size, repetition_levels_rle_size,
                     uncompressed_size, values);
   }
@@ -1065,13 +1087,18 @@ void ColumnWriterImpl::BuildDataPageV2(int64_t definition_levels_rle_size,
 }
 
 int64_t ColumnWriterImpl::Close() {
+  std::cerr << "kuddai mark columwriterimpl close start" << std::endl;
   if (!closed_) {
     closed_ = true;
     if (has_dictionary_ && !fallback_) {
+      std::cerr << "kuddai mark close  write dictionary page start " << std::endl;
       WriteDictionaryPage();
+      std::cerr << "kuddai mark close  write dictionary page  end" << std::endl;
     }
 
+    std::cerr << "kuddai mark close FlushBufferedDataPages " << std::endl;
     FlushBufferedDataPages();
+    std::cerr << "kuddai mark close FlushBufferedDataPages after " << std::endl;
 
     EncodedStatistics chunk_statistics = GetChunkStatistics();
     chunk_statistics.ApplyStatSizeLimits(
@@ -1082,7 +1109,9 @@ int64_t ColumnWriterImpl::Close() {
     if (rows_written_ > 0 && chunk_statistics.is_set()) {
       metadata_->SetStatistics(chunk_statistics);
     }
+    std::cerr << "kuddai mark close pager close " << std::endl;
     pager_->Close(has_dictionary_, fallback_);
+    std::cerr << "kuddai mark close pager close after " << std::endl;
   }
 
   return total_bytes_written_;
@@ -1106,6 +1135,7 @@ void ColumnWriterImpl::FlushBufferedDataPages() {
 template <typename Action>
 inline void DoInBatches(int64_t total, int64_t batch_size, Action&& action) {
   int64_t num_batches = static_cast<int>(total / batch_size);
+  std::cerr << "kuddai mark do in batches total " << total << " batch_size " << batch_size << " num_batches " << num_batches << std::endl;
   for (int round = 0; round < num_batches; round++) {
     action(round * batch_size, batch_size, /*check_page_size=*/true);
   }
@@ -1235,7 +1265,14 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
         DCHECK_NE(nullptr, values);
       }
       const int64_t num_nulls = batch_size - values_to_write;
+      if constexpr (std::is_same_v<T, ByteArray>) {
+        for (int64_t i = 0; i < values_to_write; i++) {
+          std::cerr << "kuddai v "  << i << " " << std::string_view(values[i + value_offset]) << std::endl;
+        }
+      } 
+
       WriteValues(AddIfNotNull(values, value_offset), values_to_write, num_nulls);
+      std::cout << "kuddai WriteChunk: offset " << offset << " batch_size " << batch_size << " check_page " << check_page << " values_to_write " << values_to_write << " value_offset " << value_offset << std::endl;
       CommitWriteAndCheckPageLimit(batch_size, values_to_write, num_nulls, check_page);
       value_offset += values_to_write;
 
@@ -1339,6 +1376,7 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
         properties_->memory_pool(), current_dict_encoder_->dict_encoded_size());
     current_dict_encoder_->WriteDict(buffer->mutable_data());
 
+    std::cerr << "kuddai WriteDictionaryPage num_entries " << current_dict_encoder_->num_entries() << std::endl;
     DictionaryPage page(buffer, current_dict_encoder_->num_entries(),
                         properties_->dictionary_page_encoding());
     total_bytes_written_ += pager_->WriteDictionaryPage(page);
@@ -1538,6 +1576,8 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
 
     if (check_page_size &&
         current_encoder_->EstimatedDataEncodedSize() >= properties_->data_pagesize()) {
+      std::cerr << "kuddai mark add data page " << current_encoder_->EstimatedDataEncodedSize() << " "
+                << properties_->data_pagesize() << std::endl;
       AddDataPage();
     }
   }
@@ -2189,6 +2229,7 @@ Status TypedColumnWriterImpl<ByteArrayType>::WriteArrowDense(
       page_statistics_->IncrementNullCount(batch_size - non_null);
       page_statistics_->IncrementNumValues(non_null);
     }
+
     CommitWriteAndCheckPageLimit(batch_size, batch_num_values, batch_size - non_null,
                                  check_page);
     CheckDictionarySizeLimit();

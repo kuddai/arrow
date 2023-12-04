@@ -1,0 +1,7 @@
+
+```
+mkdir build
+cd build
+cmake -DARROW_PARQUET=ON -DPARQUET_BUILD_EXAMPLES=ON -DARROW_WITH_ZSTD=ON -DARROW_WITH_ZLIB=ON -DCMAKE_BUILD_TYPE=Debug ..
+make
+```

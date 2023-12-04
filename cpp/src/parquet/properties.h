@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <iostream>
 
 #include "arrow/io/caching.h"
 #include "arrow/type.h"
@@ -739,6 +740,8 @@ class PARQUET_EXPORT WriterProperties {
       const std::shared_ptr<schema::ColumnPath>& path) const {
     auto it = column_properties_.find(path->ToDotString());
     if (it != column_properties_.end()) return it->second;
+    std::cerr << "kuddai No column properties found for path: " << path->ToDotString()
+              << std::endl;
     return default_column_properties_;
   }
 
